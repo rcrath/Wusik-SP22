@@ -12,7 +12,7 @@
 #pragma once
 #include "../JuceLibraryCode/JuceHeader.h"
 //
-#define WPRODUCT_VERSION "V1.0.0 BETA 00"
+#define WPRODUCT_VERSION "V1.0.0 BETA 02"
 //
 enum
 {

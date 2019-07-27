@@ -124,7 +124,7 @@ public:
 	WValueLabel* valueLabel;
 	//
 	Rectangle<int> buttonOptions, buttonPlay, buttonRecord, buttonStop;
-	Point<int> valueDisplaySize;
+	Point<int> valueDisplaySize, prevGUISize;
 	int waveformDisplayOffset[4], waveformDisplayW, waveformDisplayH, waveformThumbOffset[4], waveformThumbW, waveformThumbH;
 	Image cachedWaveform;
 	int waveformEditPosition, waveformFrameSize, waveformEditPositionPrevious;

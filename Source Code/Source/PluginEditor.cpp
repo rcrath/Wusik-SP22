@@ -89,6 +89,9 @@ WusikSp22AudioProcessorEditor::WusikSp22AudioProcessorEditor (WusikSp22AudioProc
 	setSize(xW.getIntValue(), xH.getIntValue());
 	centreWithSize(xW.getIntValue(), xH.getIntValue());
 	//
+	prevGUISize.x = getWidth();
+	prevGUISize.y = getHeight();
+	//
 	createCachedWaveform();
 	startTimer(50);
 }
@@ -103,6 +106,14 @@ WusikSp22AudioProcessorEditor::~WusikSp22AudioProcessorEditor()
 void WusikSp22AudioProcessorEditor::timerCallback()
 {
 	stopTimer();
+	//
+	if (prevGUISize.x != getWidth() || prevGUISize.y != getHeight())
+	{
+		prevGUISize.x = getWidth();
+		prevGUISize.y = getHeight();
+		createCachedWaveform();
+		repaint();
+	}
 	//
 	if ((processor.isRecording || processor.isPlaying) && processor.sampleLen.get() > 0)
 	{
@@ -250,6 +261,7 @@ void WusikSp22AudioProcessorEditor::mouseDown(const MouseEvent& event)
 		processor.isPlaying = processor.isRecording = processor.isRecordingStarted = false;
 		processor.playingPosition.set(0);
 		processor.isPlaying = true;
+		startTimer(10);
 	}
 	else if (buttonStop.contains(event.getPosition()))
 	{
@@ -264,6 +276,7 @@ void WusikSp22AudioProcessorEditor::mouseDown(const MouseEvent& event)
 		processor.isRecording = true;
 		processor.playingPosition.set(0);
 		processor.clearSampleBuffer();
+		startTimer(10);
 	}
 	else if (event.y <= (getHeight() - waveformDisplayOffset[kOffsetBottom]))
 	{
