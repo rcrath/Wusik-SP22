@@ -13,35 +13,38 @@
 #define WPIMAGE_H_INCLUDED
 
 // -------------------------------------------------------------------------------------------------------------------------------
-#define PINK_COLOUR juce::Colour::fromString("ffff00ff")
+#define PINK_COLOUR Colour::fromString("ffff00ff")
+#include <array>
+using namespace juce;
 
 class WusikPinkImage
 {
 public:
 
 	// -------------------------------------------------------------------------------------------------------------------------------
-	static void stripSquare(juce::Image original, juce::Image destination[9], int height = 0, int offsetY = 0)
+	// Destination Should be 9 Images //
+	static void stripSquare(Image& original, std::array<Image, 9>& destination, int height = 0, int offsetY = 0)
 	{
 		if (height == 0) height = original.getHeight();
 		int Corners[4] = {0,0,0,0}; // Top-Left X and Y, Bottom-Right X and Y //
-
+		//
 		for (int x=0; x<original.getWidth(); x++) { if (original.getPixelAt(x,offsetY) != PINK_COLOUR) break; Corners[0] = x-1; }
 		for (int x=0; x<height; x++) { if (original.getPixelAt(0,x+offsetY) != PINK_COLOUR) break; Corners[1] = x-1; }
-				
+		//		
 		for (int x=original.getWidth()-1; x>=0; x--) { if (original.getPixelAt(x,height-1+offsetY) != PINK_COLOUR) break; Corners[2] = x-2; }
 		for (int x=(height-1); x>=0; x--) { if (original.getPixelAt(original.getWidth()-1,x+offsetY) != PINK_COLOUR) break; Corners[3] = x-2; }
-							
+		//					
 		/*	
 			0 1 2
 			3 4 5
 			6 7 8
 		*/
-
+		//
 		// Create Buttons //
 		int bW = original.getWidth()-2;
 		int bH = height-2;
-		#define CreateBT(BT,W,H) destination[BT] = juce::Image(juce::Image::ARGB,W,H,true);
-
+		#define CreateBT(BT,W,H) destination[BT] = Image(Image::ARGB,W,H,true);
+		//
 		CreateBT(0, Corners[0], Corners[1]);
 		CreateBT(1, Corners[2]-Corners[0], Corners[1]);
 		CreateBT(2, bW-Corners[2], Corners[1]);
@@ -53,11 +56,11 @@ public:
 		CreateBT(6, Corners[0], bH-Corners[3]);
 		CreateBT(7, Corners[2]-Corners[0], bH-Corners[3]);
 		CreateBT(8, bW-Corners[2], bH-Corners[3]);
-
+		//
 		// Perform Copies //
 		int pX = 0;
 		int pY = 0;
-
+		//
 		for (int bt=0; bt<9; bt++)
 		{
 			switch(bt)
@@ -71,7 +74,7 @@ public:
 				case 7:	pX = Corners[0];	pY = Corners[3];	break;
 				case 8:	pX = Corners[2];	pY = Corners[3];	break;
 			}
-
+			//
 			for (int y=0; y<destination[bt].getHeight(); y++)
 			{
 				for (int x=0; x<destination[bt].getWidth(); x++)
@@ -83,29 +86,30 @@ public:
 	}
 
 	// -------------------------------------------------------------------------------------------------------------------------------
-	static void stripHorizontal(juce::Image original, juce::Image destination[3], int height = 0, int offsetY = 0)
+	// Destination Should be 3 Images //
+	static void stripHorizontal(Image& original, std::array<Image, 3>& destination, int height = 0, int offsetY = 0)
 	{
 		if (height == 0) height = original.getHeight();
 		int Corners[2] = {0,0}; // Left X  Right X //
-
+		//
 		for (int x=0; x<original.getWidth(); x++) { if (original.getPixelAt(x,offsetY) != PINK_COLOUR) break; Corners[0] = x-1; }
 		for (int x=original.getWidth()-1; x>=0; x--) { if (original.getPixelAt(x,offsetY) != PINK_COLOUR) break; Corners[1] = x-2; }
-							
+		//				
 		/*
 				0		1		2 
 		*/
-
+		//
 		// Create Buttons //
 		int bW = original.getWidth()-2;
-		#define CreateBT2(BT,W,H) destination[BT] = juce::Image(juce::Image::ARGB,W,H,true);
-
+		#define CreateBT2(BT,W,H) destination[BT] = Image(Image::ARGB,W,H,true);
+		//
 		CreateBT2(0, Corners[0], height-2);
 		CreateBT2(1, Corners[1]-Corners[0], height-2);
 		CreateBT2(2, bW-Corners[1], height-2);
-
+		//
 		// Perform Copies //
 		int pX = 0;
-
+		//
 		for (int bt=0; bt<3; bt++)
 		{
 			switch(bt)
@@ -113,7 +117,7 @@ public:
 				case 1:	pX = Corners[0]; break;
 				case 2:	pX = Corners[1]; break;
 			}
-
+			//
 			for (int y=0; y<destination[bt].getHeight(); y++)
 			{
 				for (int x=0; x<destination[bt].getWidth(); x++)
@@ -125,14 +129,15 @@ public:
 	}
 
 	// -------------------------------------------------------------------------------------------------------------------------------
-	static void stripVertical(juce::Image original, juce::Image destination[3], int width = 0, int offsetX = 0)
+	// Destination Should be 3 Images //
+	static void stripVertical(Image& original, std::array<Image, 3>& destination, int width = 0, int offsetX = 0)
 	{
 		if (width == 0) width = original.getWidth();
 		int Corners[2] = {0,0}; // Top Y  Bottom Y //
-
+		//
 		for (int x=0; x<original.getHeight(); x++) { if (original.getPixelAt(offsetX,x) != PINK_COLOUR) break; Corners[0] = x-1; }
 		for (int x=original.getHeight()-1; x>=0; x--) { if (original.getPixelAt(offsetX,x) != PINK_COLOUR) break; Corners[1] = x-2; }
-							
+		//					
 		/* 
 			0
 			
@@ -140,18 +145,18 @@ public:
 			
 			2
 		*/
-
+		//
 		// Create Buttons //
 		int bH = original.getHeight()-2;
-		#define CreateBT3(BT,W,H) destination[BT] = juce::Image(juce::Image::ARGB,W,H,true);
-		
+		#define CreateBT3(BT,W,H) destination[BT] = Image(Image::ARGB,W,H,true);
+		//
 		CreateBT3(0, width-2, Corners[0]);
 		CreateBT3(1, width-2, Corners[1]-Corners[0]);
 		CreateBT3(2, width-2, bH-Corners[1]);
-
+		//
 		// Perform Copies //
 		int pX = 0;
-
+		//
 		for (int bt=0; bt<3; bt++)
 		{
 			switch(bt)
@@ -159,7 +164,7 @@ public:
 				case 1:	pX = Corners[0]; break;
 				case 2:	pX = Corners[1]; break;
 			}
-
+			//
 			for (int y=0; y<destination[bt].getHeight(); y++)
 			{
 				for (int x=0; x<destination[bt].getWidth(); x++)
@@ -171,15 +176,16 @@ public:
 	}
 
 	// -------------------------------------------------------------------------------------------------------------------------------
-	static void drawImageSquare(juce::Graphics& g, juce::Image images[9], int x, int y, int width, int height, bool resampleImages = false, bool skinTiled = false, int* offSets = nullptr)
+	// Images should be 9 images, see stripSquare code //
+	static void drawImageSquare(Graphics& g, std::array<Image, 9>& images, int x, int y, int width, int height, bool resampleImages = false, bool skinTiled = false, int* offSets = nullptr)
 	{
 		int thisOffset[2] = { 0,0 };
 		if (offSets == nullptr) offSets = thisOffset;
 		//
 		if (resampleImages)
 		{
-			juce::Image xg(juce::Image::PixelFormat::ARGB, width, height, true);
-			juce::Graphics gg(xg);
+			Image xg(Image::PixelFormat::ARGB, width, height, true);
+			Graphics gg(xg);
 			//
 			if (skinTiled)
 			{
@@ -206,7 +212,7 @@ public:
 			gg.drawImageAt(images[2], width - images[2].getWidth(), 0);
 			gg.drawImageAt(images[6], 0, height - images[6].getHeight());
 			gg.drawImageAt(images[8], width - images[8].getWidth(), height - images[8].getHeight());
-
+			//
 			g.drawImageAt(xg, x, y);
 		}
 		else
@@ -240,16 +246,16 @@ public:
 	}
 
 	//-----------------------------------------------------------------------------------------------------------
-	static void drawImageHorizontal(juce::Graphics& g, juce::Image images[3], int x, int y, int width, bool resampleImages = false, bool skinTiled = false, int* offSets = nullptr)
+	static void drawImageHorizontal(Graphics& g, std::array<Image, 3>& images, int x, int y, int width, bool resampleImages = false, bool skinTiled = false, int* offSets = nullptr)
 	{
 		int thisOffset[2] = { 0,0 };
 		if (offSets == nullptr) offSets = thisOffset;
 		//
 		if (resampleImages)
 		{
-			juce::Image xg(juce::Image::PixelFormat::ARGB, width, images[0].getHeight(), true);
-			juce::Graphics gg(xg);
-
+			Image xg(Image::PixelFormat::ARGB, width, images[0].getHeight(), true);
+			Graphics gg(xg);
+			//
 			if (skinTiled)
 			{
 				gg.setTiledImageFill(images[1], 0, images[0].getHeight(), 1.0f);
@@ -258,7 +264,7 @@ public:
 			else gg.drawImage(images[1], images[0].getWidth() - offSets[0], 0, width - images[0].getWidth() - images[2].getWidth() + offSets[1], images[1].getHeight(), 0, 0, images[1].getWidth(), images[1].getHeight());
 			gg.drawImageAt(images[0], 0, 0);
 			gg.drawImageAt(images[2], width - images[2].getWidth(), 0);
-
+			//
 			g.drawImageAt(xg, x, y);
 		}
 		else
@@ -275,13 +281,13 @@ public:
 	}
 
 	//-----------------------------------------------------------------------------------------------------------
-	static void drawImageVertical(juce::Graphics& g, juce::Image images[3], int x, int y, int height, bool resampleImages = false, bool skinTiled = false)
+	static void drawImageVertical(Graphics& g, std::array<Image, 3>& images, int x, int y, int height, bool resampleImages = false, bool skinTiled = false)
 	{
 		if (resampleImages)
 		{
-			juce::Image xg(juce::Image::PixelFormat::ARGB, images[0].getWidth(), height, true);
-			juce::Graphics gg(xg);
-
+			Image xg(Image::PixelFormat::ARGB, images[0].getWidth(), height, true);
+			Graphics gg(xg);
+			//
 			if (skinTiled)
 			{
 				gg.setTiledImageFill(images[1], 0, images[0].getHeight(), 1.0f);
@@ -290,7 +296,7 @@ public:
 			else gg.drawImage(images[1], 0, images[0].getHeight(), images[1].getWidth(), height - images[0].getHeight() - images[2].getHeight(), 0, 0, images[1].getWidth(), images[1].getHeight());
 			gg.drawImageAt(images[0], 0, 0);
 			gg.drawImageAt(images[2], 0, height - images[2].getHeight());
-
+			//
 			g.drawImageAt(xg, x, y);
 		}
 		else

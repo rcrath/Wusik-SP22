@@ -12,6 +12,7 @@
 #pragma once
 #include "../JuceLibraryCode/JuceHeader.h"
 #include "PluginProcessor.h"
+#include <array>
 //
 enum
 {
@@ -117,7 +118,7 @@ public:
 	void createCachedWaveform();
 	//
 	ScopedPointer<TooltipWindow> toolTipWindow;
-	Image background[9];
+	std::array<juce::Image, 9> background;
 	Image buttons[kMAXBUTTONS];
 	ResizableCornerComponent* resizer;
 	ComponentBoundsConstrainer resizeLimits;
