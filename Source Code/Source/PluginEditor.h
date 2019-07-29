@@ -117,8 +117,8 @@ public:
 	void timerCallback();
 	void createCachedWaveform();
 	//
-	ScopedPointer<TooltipWindow> toolTipWindow;
-	std::array<juce::Image, 9> background;
+	TooltipWindow* toolTipWindow;
+	std::array<Image, 9> background;
 	Image buttons[kMAXBUTTONS];
 	ResizableCornerComponent* resizer;
 	ComponentBoundsConstrainer resizeLimits;
