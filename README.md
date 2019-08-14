@@ -1,6 +1,6 @@
 # Welcome to Wusik SP22
 This product is FREE and also Open-Source.
-Current Version 1.0.0 BETA 02
+Current Version 1.0.2
 
 ------------------------------------------------------
 

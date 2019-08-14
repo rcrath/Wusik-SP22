@@ -29,6 +29,9 @@ WusikSp22AudioProcessor::WusikSp22AudioProcessor() : midiMessage(0xf4, 0.0)
 	isRecording = false;
 	isRecordingStarted = false;
 	isPlaying = false;
+	fixedPitchPlayback = false;
+	playbackAntialias = true;
+	playingRate = 1.0;
 }
 //
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -82,7 +85,7 @@ void WusikSp22AudioProcessor::setStateInformation (const void* data, int sizeInB
 	clearSampleBuffer();
 	//
 	isPlaying = false;
-	playingPosition.set(0);
+	playingPosition.set(0.0);
 	//
 	MemoryInputStream xStream(data, sizeInBytes, false);
 	int xVersion = xStream.readInt();
@@ -174,12 +177,22 @@ void WusikSp22AudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffe
 				{
 					if (midiMessage.isNoteOn())
 					{
-						playingPosition.set(0);
+						playingPosition.set(0.0);
+						playingRate = 1.0;
 						isPlaying = true;
+						//
+						if (!fixedPitchPlayback)
+						{
+							double cyclesPerSecond = MidiMessage::getMidiNoteInHertz(midiMessage.getNoteNumber());
+							double angleDelta = cyclesPerSecond / lastSampleRate;
+							double baseRate = double(lastSampleRate) / MidiMessage::getMidiNoteInHertz(60);
+							playingRate = angleDelta * baseRate;
+							if (playingRate < 0.0f) playingRate = 0.0f;
+						}
 					}
 					else
 					{
-						playingPosition.set(0);
+						playingPosition.set(0.0);
 						isPlaying = false;
 					}
 				}
@@ -235,23 +248,43 @@ void WusikSp22AudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffe
 		}
 		else if (isPlaying)
 		{
-			if (playingPosition.get() > (sampleLen.get() - 1))
+			if (playingPosition.get() > double(sampleLen.get()))
 			{
-				playingPosition.set(0);
+				playingPosition.set(0.0);
 				isPlaying = false;
 			}
 			else
 			{
-				buffer.setSample(kLeftChannel, sampleBufferPos, normalizeRecordingValue * sampleBuffer.getSample(kLeftChannel, playingPosition.get()));
-				buffer.setSample(kRightChannel, sampleBufferPos, normalizeRecordingValue *sampleBuffer.getSample(kRightChannel, playingPosition.get()));
+				if (playbackAntialias)
+				{
+					int intPosition = int(playingPosition.get());
+					float fractionalPosition = playingPosition.get() - float(intPosition);
+					//
+					buffer.setSample(kLeftChannel, sampleBufferPos, normalizeRecordingValue *	hermite(fractionalPosition,
+																									sampleBuffer.getSample(kLeftChannel, intPosition),
+																									sampleBuffer.getSample(kLeftChannel, intPosition + 1),
+																									sampleBuffer.getSample(kLeftChannel, intPosition + 2),
+																									sampleBuffer.getSample(kLeftChannel, intPosition + 3)));
+					//
+					buffer.setSample(kRightChannel, sampleBufferPos, normalizeRecordingValue *	hermite(fractionalPosition,
+																									sampleBuffer.getSample(kRightChannel, intPosition),
+																									sampleBuffer.getSample(kRightChannel, intPosition + 1),
+																									sampleBuffer.getSample(kRightChannel, intPosition + 2),
+																									sampleBuffer.getSample(kRightChannel, intPosition + 3)));
+				}
+				else
+				{
+					buffer.setSample(kLeftChannel, sampleBufferPos, normalizeRecordingValue * sampleBuffer.getSample(kLeftChannel, int(playingPosition.get())));
+					buffer.setSample(kRightChannel, sampleBufferPos, normalizeRecordingValue *sampleBuffer.getSample(kRightChannel, int(playingPosition.get())));
+				}
 				//
-				playingPosition.set(playingPosition.get() + 1);
+				playingPosition.set(playingPosition.get() + playingRate);
 				//
 				if (loopedMode == 1.0f)
 				{
-					if (playingPosition.get() >= (loopEnd * float(sampleLen.get())))
+					if (playingPosition.get() >= double(loopEnd * float(sampleLen.get())))
 					{
-						playingPosition.set(loopStart * float(sampleLen.get()));
+						playingPosition.set(double(loopStart * float(sampleLen.get())));
 					}
 				}
 			}

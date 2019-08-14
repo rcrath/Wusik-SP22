@@ -211,7 +211,7 @@ void WusikSp22AudioProcessorEditor::paint (Graphics& g)
 				//
 				if (processor.isPlaying)
 				{
-					int positionX = jmap<int>(processor.playingPosition.get(), 0, processor.sampleLen.get(), 0, waveformThumbW);
+					int positionX = jmap<int>(int(processor.playingPosition.get()), 0, processor.sampleLen.get(), 0, waveformThumbW);
 					g.setColour(Colours::red.withAlpha(0.82f));
 					g.fillRect(waveformThumbOffset[kOffsetLeft] + positionX, getHeight() - waveformThumbOffset[kOffsetBottom], 2, cachedWaveform.getHeight());
 				}
@@ -259,7 +259,8 @@ void WusikSp22AudioProcessorEditor::mouseDown(const MouseEvent& event)
 	else if (buttonPlay.contains(event.getPosition()))
 	{
 		processor.isPlaying = processor.isRecording = processor.isRecordingStarted = false;
-		processor.playingPosition.set(0);
+		processor.playingRate = 1.0;
+		processor.playingPosition.set(0.0);
 		processor.isPlaying = true;
 		startTimer(10);
 	}
@@ -267,7 +268,7 @@ void WusikSp22AudioProcessorEditor::mouseDown(const MouseEvent& event)
 	{
 		if (processor.isRecording && processor.isRecordingStarted) createCachedWaveform();
 		processor.isPlaying = processor.isRecording = processor.isRecordingStarted = false;
-		processor.playingPosition.set(0);
+		processor.playingPosition.set(0.0);
 	}
 	else if (buttonRecord.contains(event.getPosition()))
 	{
@@ -325,11 +326,22 @@ void WusikSp22AudioProcessorEditor::mouseUp(const MouseEvent& event)
 		pm.addItem(26, "Quick Fade Out (200 samples)");
 		pm.addItem(32, "Auto Normalize", true, processor.normalizeRecording == 1.0f);
 		pm.addItem(28, "Crossfade");
+		pm.addSeparator();
+		pm.addItem(42, "Fixed Pitch", true, processor.fixedPitchPlayback);
+		pm.addItem(44, "Antialias Playback", true, processor.playbackAntialias);
 		//
 		int result = pm.show();
 		if (result != 0)
 		{
-			if (result <= 6) // Export //
+			if (result == 42)
+			{
+				processor.fixedPitchPlayback = !processor.fixedPitchPlayback;
+			}
+			else if (result == 44)
+			{
+				processor.playbackAntialias = !processor.playbackAntialias;
+			}
+			else if (result <= 6) // Export //
 			{
 				int xBits = 16;
 				if (result == 4) xBits = 24;

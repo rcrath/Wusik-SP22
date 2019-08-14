@@ -12,7 +12,7 @@
 #pragma once
 #include "../JuceLibraryCode/JuceHeader.h"
 //
-#define WPRODUCT_VERSION "V1.0.0"
+#define WPRODUCT_VERSION "V1.0.2"
 //
 enum
 {
@@ -49,6 +49,17 @@ public:
 	void changeProgramName(int index, const String& newName) override { };
 	void clearSampleBuffer();
 	//
+	float hermite(float x, float y0, float y1, float y2, float y3)
+	{
+		// 4-point, 3rd-order Hermite (x-form)
+		float c0 = y1;
+		float c1 = 0.5f * (y2 - y0);
+		float c3 = (1.5f * (y1 - y2)) + (0.5f * (y3 - y0));
+		float c2 = (y0 - (y1 + c1)) - c3;
+		//
+		return (((((c3 * x) + c2) * x) + c1) * x) + c0;
+	}
+	//
 	float lastSampleRate;
 	//
 	float inputLevelRecording;
@@ -62,9 +73,11 @@ public:
 	float recordedSamplerate;
 	float normalizeRecording;
 	float normalizeRecordingValue;
-	Atomic<int> playingPosition;
+	Atomic<double> playingPosition;
+	double playingRate;
 	MidiMessage midiMessage;
 	int sampPos;
+	bool fixedPitchPlayback, playbackAntialias;
 	//
 	AudioSampleBuffer sampleBuffer;
 	//
