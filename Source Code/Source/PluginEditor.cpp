@@ -20,6 +20,7 @@ WusikSp22AudioProcessorEditor::WusikSp22AudioProcessorEditor (WusikSp22AudioProc
 	scrollingWaveform = kScrollingWaveformNone;
 	waveformEditPosition = waveformEditPositionPrevious = 0;
 	waveformFrameSize = 1;
+	writeFileProgress = -1.0;
 	//
 	buttonOptions = Rectangle<int>(350, 0, 86, 60);
 	buttonPlay = Rectangle<int>(0, 0, 68, 60);
@@ -76,12 +77,12 @@ WusikSp22AudioProcessorEditor::WusikSp22AudioProcessorEditor (WusikSp22AudioProc
 	newKnob->sampleSize = &processor.sampleLen;
 	addAndMakeVisible(newKnob);
 	//
-	newKnob = new WusikKnob(valueLabel, this, &processor.loopStart, &buttons[kButton2_Knob], 278, 16, 0.0f, float(processor.sampleLen.get()), 1.0f, 26);
+	newKnob = new WusikKnob(valueLabel, this, &processor.loopStart, &buttons[kButton2_Knob], 278, 16, 0.0f, float(processor.sampleLen), 1.0f, 26);
 	newKnob->setTooltip("Loop Start");
 	newKnob->sampleSize = &processor.sampleLen;
 	addAndMakeVisible(newKnob);
 	//
-	newKnob = new WusikKnob(valueLabel, this, &processor.loopEnd, &buttons[kButton2_Knob], 308, 16, 0.0f, float(processor.sampleLen.get()), 1.0f, 26);
+	newKnob = new WusikKnob(valueLabel, this, &processor.loopEnd, &buttons[kButton2_Knob], 308, 16, 0.0f, float(processor.sampleLen), 1.0f, 26);
 	newKnob->setTooltip("Loop End");
 	newKnob->sampleSize = &processor.sampleLen;
 	addAndMakeVisible(newKnob);
@@ -100,6 +101,7 @@ WusikSp22AudioProcessorEditor::WusikSp22AudioProcessorEditor (WusikSp22AudioProc
 WusikSp22AudioProcessorEditor::~WusikSp22AudioProcessorEditor()
 {
 	deleteAllChildren();
+	writeFileThread = nullptr;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -115,7 +117,7 @@ void WusikSp22AudioProcessorEditor::timerCallback()
 		repaint();
 	}
 	//
-	if ((processor.isRecording || processor.isPlaying) && processor.sampleLen.get() > 0)
+	if ((processor.isRecording && processor.sampleLen > 0) || (processor.isPlaying && processor.sampleLen > 0) || writeFileProgress != -1.0)
 	{
 		repaint();
 		startTimer(10);
@@ -128,7 +130,16 @@ void WusikSp22AudioProcessorEditor::paint (Graphics& g)
 {
 	WusikPinkImage::drawImageSquare(g, background, 0, 0, getWidth(), getHeight());
 	//
-	if (processor.sampleLen.get() > 0 && processor.sampleLen.get() > waveformDisplayW)
+	if (writeFileProgress != -1.0)
+	{
+		g.setFont(Font("Verdana", 18, 0));
+		g.setColour(Colours::red);
+		//
+		g.drawText("Writing to file: " + String(int(writeFileProgress * 100.0)) +  "%", getBounds(), Justification::centred);
+		return;
+	}
+	//
+	if ((processor.sampleLen > 0 && processor.sampleLen > waveformDisplayW) || (processor.isRecording && processor.sampleLenRecording >= waveformDisplayW))
 	{
 		g.setColour(Colours::black.withAlpha(0.82f));
 		g.drawLine(waveformDisplayOffset[kOffsetLeft], waveformDisplayOffset[kOffsetTop] - 1 + waveformDisplayH / 2, waveformDisplayW, waveformDisplayOffset[kOffsetTop] + (waveformDisplayH / 2) + 1, 1.0f);
@@ -136,13 +147,15 @@ void WusikSp22AudioProcessorEditor::paint (Graphics& g)
 		if (processor.isRecording)
 		{
 			int prevPosY[2] = { waveformDisplayH / 2, waveformDisplayH / 2 };
-			int samplePos = processor.sampleLen.get() -1;
+			int samplePos = jmax(0, processor.sampleLenRecording - 1);
+			AudioSampleBuffer* theBuffer = processor.recordingBufferToShow;
+			if (theBuffer == nullptr) return;
 			//
 			for (int xs = 0; xs < waveformDisplayW; xs++)
 			{
 				g.setColour(Colours::red.withAlpha(0.72f));
 				//
-				int posY = int(jmap<float>(processor.sampleBuffer.getSample(kLeftChannel, samplePos) * processor.normalizeRecordingValue, -1.0f, 1.0f, float(waveformDisplayH), 0.0f));
+				int posY = int(jmap<float>(theBuffer->getSample(kLeftChannel, samplePos), -1.0f, 1.0f, float(waveformDisplayH), 0.0f));
 				g.drawLine(
 					waveformDisplayOffset[kOffsetLeft] + xs, waveformDisplayOffset[kOffsetTop] + prevPosY[kLeftChannel],
 					waveformDisplayOffset[kOffsetLeft] + xs + 1, waveformDisplayOffset[kOffsetTop] + posY, 1.0f);
@@ -150,7 +163,7 @@ void WusikSp22AudioProcessorEditor::paint (Graphics& g)
 				//
 				g.setColour(Colours::yellow.withAlpha(0.22f));
 				//
-				posY = int(jmap<float>(processor.sampleBuffer.getSample(kRightChannel, samplePos) * processor.normalizeRecordingValue, -1.0f, 1.0f, float(waveformDisplayH), 0.0f));
+				posY = int(jmap<float>(theBuffer->getSample(kRightChannel, samplePos), -1.0f, 1.0f, float(waveformDisplayH), 0.0f));
 				g.drawLine(
 					waveformDisplayOffset[kOffsetLeft] + xs, waveformDisplayOffset[kOffsetTop] + prevPosY[kRightChannel],
 					waveformDisplayOffset[kOffsetLeft] + xs + 1, waveformDisplayOffset[kOffsetTop] + posY, 1.0f);
@@ -162,17 +175,30 @@ void WusikSp22AudioProcessorEditor::paint (Graphics& g)
 		}
 		else // Not Recording //
 		{
-			int loopStart = int(processor.loopStart * float(processor.sampleLen.get()));
-			int loopEnd = int(processor.loopEnd * float(processor.sampleLen.get()));
+			int loopStart = int(processor.loopStart * float(processor.sampleLen));
+			int loopEnd = int(processor.loopEnd * float(processor.sampleLen));
 			int samplePos = waveformEditPosition;
 			int prevPosY[2] = { waveformDisplayH / 2, waveformDisplayH / 2 };
 			//
 			for (int xs = 0; xs < waveformDisplayW; xs++)
 			{
+				int xWhich = 0;
+				int xPosition = samplePos;
+				//
+				if (processor.sampleLen < processor.sampleBuffer[0]->getNumSamples())
+				{
+					xPosition = int(samplePos);
+				}
+				else
+				{
+					xPosition = int(samplePos) % processor.sampleBuffer[0]->getNumSamples();
+					xWhich = int(samplePos / double(processor.sampleBuffer[0]->getNumSamples()));
+				}
+				//
 				g.setColour(Colours::black.withAlpha(0.52f));
 				if (processor.loopedMode == 1.0f && loopEnd > 0 && samplePos >= loopStart && samplePos <= loopEnd) g.setColour(Colours::red.withAlpha(0.82f));
 				//
-				int posY = int(jmap<float>(processor.sampleBuffer.getSample(kLeftChannel, samplePos) * processor.normalizeRecordingValue, -1.0f, 1.0f, float(waveformDisplayH), 0.0f));
+				int posY = int(jmap<float>(processor.sampleBuffer[xWhich]->getSample(kLeftChannel, xPosition) * processor.normalizeRecordingValue, -1.0f, 1.0f, float(waveformDisplayH), 0.0f));
 				g.drawLine(
 					waveformDisplayOffset[kOffsetLeft] + xs, waveformDisplayOffset[kOffsetTop] + prevPosY[kLeftChannel],
 					waveformDisplayOffset[kOffsetLeft] + xs + 1, waveformDisplayOffset[kOffsetTop] + posY, 1.0f);
@@ -181,7 +207,7 @@ void WusikSp22AudioProcessorEditor::paint (Graphics& g)
 				g.setColour(Colours::black.withAlpha(0.22f));
 				if (processor.loopedMode == 1.0f && loopEnd > 0 && samplePos >= loopStart && samplePos <= loopEnd) g.setColour(Colours::red.withAlpha(0.42f));
 				//
-				posY = int(jmap<float>(processor.sampleBuffer.getSample(kRightChannel, samplePos) * processor.normalizeRecordingValue, -1.0f, 1.0f, float(waveformDisplayH), 0.0f));
+				posY = int(jmap<float>(processor.sampleBuffer[xWhich]->getSample(kRightChannel, xPosition) * processor.normalizeRecordingValue, -1.0f, 1.0f, float(waveformDisplayH), 0.0f));
 				g.drawLine(
 					waveformDisplayOffset[kOffsetLeft] + xs, waveformDisplayOffset[kOffsetTop] + prevPosY[kRightChannel],
 					waveformDisplayOffset[kOffsetLeft] + xs + 1, waveformDisplayOffset[kOffsetTop] + posY, 1.0f);
@@ -202,8 +228,8 @@ void WusikSp22AudioProcessorEditor::paint (Graphics& g)
 				//
 				if (processor.loopedMode == 1.0f && loopEnd > 0)
 				{
-					int loopS = jmap<int>(loopStart, 0, processor.sampleLen.get(), 0, waveformThumbW);
-					int loopE = jmap<int>(loopEnd, 0, processor.sampleLen.get(), 0, waveformThumbW);
+					int loopS = jmap<int>(loopStart, 0, processor.sampleLen, 0, waveformThumbW);
+					int loopE = jmap<int>(loopEnd, 0, processor.sampleLen, 0, waveformThumbW);
 					//
 					g.setColour(Colours::red.withAlpha(0.22f));
 					g.fillRect(waveformThumbOffset[kOffsetLeft] + loopS, getHeight() - waveformThumbOffset[kOffsetBottom], loopE - loopS, cachedWaveform.getHeight());
@@ -211,7 +237,7 @@ void WusikSp22AudioProcessorEditor::paint (Graphics& g)
 				//
 				if (processor.isPlaying)
 				{
-					int positionX = jmap<int>(int(processor.playingPosition.get()), 0, processor.sampleLen.get(), 0, waveformThumbW);
+					int positionX = jmap<int>(int(processor.playingPosition), 0, processor.sampleLen, 0, waveformThumbW);
 					g.setColour(Colours::red.withAlpha(0.82f));
 					g.fillRect(waveformThumbOffset[kOffsetLeft] + positionX, getHeight() - waveformThumbOffset[kOffsetBottom], 2, cachedWaveform.getHeight());
 				}
@@ -225,7 +251,25 @@ void WusikSp22AudioProcessorEditor::paint (Graphics& g)
 		g.setColour(Colours::red);
 		//
 		if (!processor.isRecordingStarted) g.drawText("! Waiting To Record !", getBounds(), Justification::centred);
-		else g.drawText("! Recording !", getBounds(), Justification::centred);
+		else
+		{
+			String xTime = "";
+			//
+			if (processor.sampleLen < int((processor.lastSampleRate * 60.0) - 1.0))
+			{
+				xTime = String(float(processor.sampleLen) / processor.lastSampleRate, 1) + "s";
+			}
+			else
+			{
+				float totalTime = float(processor.sampleLen) / processor.lastSampleRate;
+				int xMinutes = int(totalTime / 60.0);
+				float xSeconds = ((totalTime / 60.0) - xMinutes) * 60.0;
+				//
+				xTime = String(xMinutes) + ":" + String(xSeconds, 1) + "s";
+			}
+			//
+			g.drawText("! Recording. Total: " + xTime + " !", getBounds(), Justification::centred);
+		}
 	}
 }
 
@@ -260,23 +304,19 @@ void WusikSp22AudioProcessorEditor::mouseDown(const MouseEvent& event)
 	{
 		processor.isPlaying = processor.isRecording = processor.isRecordingStarted = false;
 		processor.playingRate = 1.0;
-		processor.playingPosition.set(0.0);
+		processor.playingPosition = 0.0;
 		processor.isPlaying = true;
 		startTimer(10);
 	}
 	else if (buttonStop.contains(event.getPosition()))
 	{
-		if (processor.isRecording && processor.isRecordingStarted) createCachedWaveform();
-		processor.isPlaying = processor.isRecording = processor.isRecordingStarted = false;
-		processor.playingPosition.set(0.0);
+		if (processor.isRecording && processor.isRecordingStarted) processor.finishRecording();
+		processor.playingPosition = 0.0;
+		processor.isPlaying = false;
 	}
 	else if (buttonRecord.contains(event.getPosition()))
 	{
-		processor.isPlaying = false;
-		processor.isRecordingStarted = false;
-		processor.isRecording = true;
-		processor.playingPosition.set(0);
-		processor.clearSampleBuffer();
+		processor.startRecording();
 		startTimer(10);
 	}
 	else if (event.y <= (getHeight() - waveformDisplayOffset[kOffsetBottom]))
@@ -287,7 +327,7 @@ void WusikSp22AudioProcessorEditor::mouseDown(const MouseEvent& event)
 	else
 	{
 		scrollingWaveform = kScrollingWaveformThumb;
-		waveformEditPosition = jlimit(0, processor.sampleLen.get() - waveformFrameSize, (event.x - waveformThumbOffset[kOffsetLeft]) * waveformFrameSize);
+		waveformEditPosition = jlimit(0, processor.sampleLen - waveformFrameSize, (event.x - waveformThumbOffset[kOffsetLeft]) * waveformFrameSize);
 	}
 	//
 	repaint();
@@ -298,15 +338,61 @@ void WusikSp22AudioProcessorEditor::mouseDrag(const MouseEvent& event)
 {
 	if (scrollingWaveform == kScrollingWaveformMain)
 	{
-		int newPosition = jlimit(0, processor.sampleLen.get() - waveformDisplayW, waveformEditPositionPrevious - event.getDistanceFromDragStartX());
+		int newPosition = jlimit(0, processor.sampleLen - waveformDisplayW, waveformEditPositionPrevious - event.getDistanceFromDragStartX());
 		waveformEditPosition = newPosition;
 	}
 	else if (scrollingWaveform == kScrollingWaveformThumb)
 	{
-		waveformEditPosition = jlimit(0, processor.sampleLen.get() - waveformDisplayW, (event.x - waveformThumbOffset[kOffsetLeft]) * waveformFrameSize);
+		waveformEditPosition = jlimit(0, processor.sampleLen - waveformDisplayW, (event.x - waveformThumbOffset[kOffsetLeft]) * waveformFrameSize);
 	}
 	//
 	repaint();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+void WWriteFile::run()
+{
+	filename.deleteFile();
+	WusikSp22AudioProcessorEditor* editor = (WusikSp22AudioProcessorEditor*)owner;
+	WusikSp22AudioProcessor* processor = (WusikSp22AudioProcessor*) editor->getAudioProcessor();
+	//
+	ScopedPointer<AudioFormatWriter> xWriter;
+	StringPairArray metaVals = WavAudioFormat::createBWAVMetadata("", "", "", Time::getCurrentTime(), 0, "");
+	if (processor->loopedMode == 1.0f)
+	{
+		metaVals.set("NumSampleLoops", "1");
+		metaVals.set("Loop0Start", String(processor->loopStart * float(processor->sampleLen)));
+		metaVals.set("Loop0End", String(processor->loopEnd * float(processor->sampleLen)));
+	}
+	//
+	WavAudioFormat xWav;
+	ScopedPointer<FileOutputStream> fileWavOutStream = filename.createOutputStream();
+	xWriter = xWav.createWriterFor(fileWavOutStream, processor->recordedSamplerate, 2, bits, metaVals, 0);
+	//
+	if (processor->sampleLen > 0)
+	{
+		if (processor->sampleLen < processor->sampleBuffer[0]->getNumSamples())
+		{
+			xWriter->writeFromAudioSampleBuffer(*processor->sampleBuffer[0], 0, processor->sampleLen);
+		}
+		else
+		{
+			for (int xa = 0; xa < processor->sampleBuffer.size(); xa++)
+			{
+				xWriter->writeFromAudioSampleBuffer(*processor->sampleBuffer[xa], 0, processor->sampleBuffer[0]->getNumSamples());
+				//
+				editor->writeFileProgress = (1.0 / double(processor->sampleBuffer.size())) * double(xa);
+			}
+		}
+	}
+	//
+	fileWavOutStream.release();
+	//
+	xWriter->flush();
+	xWriter = nullptr;
+	//
+	editor->writeFileProgress = -1.0;
+	editor->repaint();
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -325,6 +411,7 @@ void WusikSp22AudioProcessorEditor::mouseUp(const MouseEvent& event)
 		pm.addItem(24, "Quick Fade In (200 samples)");
 		pm.addItem(26, "Quick Fade Out (200 samples)");
 		pm.addItem(32, "Auto Normalize", true, processor.normalizeRecording == 1.0f);
+		pm.addItem(46, "Auto Stop", true, processor.autoStop == 1.0f);
 		pm.addItem(28, "Crossfade");
 		pm.addSeparator();
 		pm.addItem(42, "Fixed Pitch", true, processor.fixedPitchPlayback);
@@ -336,6 +423,11 @@ void WusikSp22AudioProcessorEditor::mouseUp(const MouseEvent& event)
 			if (result == 42)
 			{
 				processor.fixedPitchPlayback = !processor.fixedPitchPlayback;
+			}
+			else if (result == 46)
+			{
+				processor.autoStop = !processor.autoStop;
+				saveGlobalSettings("Wusik SP22", "AutoStop", (processor.autoStop ? "Y" : "N"));
 			}
 			else if (result == 44)
 			{
@@ -366,32 +458,15 @@ void WusikSp22AudioProcessorEditor::mouseUp(const MouseEvent& event)
 					saveGlobalSettings("Wusik SP22", "Last Export Path", File::addTrailingSeparator(xFile.getParentDirectory().getFullPathName()));
 					lastExportedFilename = xFile.getFileName();
 					//
-					ScopedPointer<AudioFormatWriter> xWriter;
-					StringPairArray metaVals = WavAudioFormat::createBWAVMetadata("", "", "", Time::getCurrentTime(), 0, "");
-					if (processor.loopedMode == 1.0f)
-					{
-						metaVals.set("NumSampleLoops", "1");
-						metaVals.set("Loop0Start", String(processor.loopStart * float(processor.sampleLen.get())));
-						metaVals.set("Loop0End", String(processor.loopEnd * float(processor.sampleLen.get())));
-					}
-					//
-					AudioSampleBuffer tempBuffer(processor.sampleBuffer);
-					if (processor.normalizeRecording == 1.0f) tempBuffer.applyGain(processor.normalizeRecordingValue);
-					//
-					WavAudioFormat xWav;
-					ScopedPointer<FileOutputStream> fileWavOutStream = xFile.createOutputStream();
-					xWriter = xWav.createWriterFor(fileWavOutStream, processor.recordedSamplerate, 2, xBits, metaVals, 0);
-					xWriter->writeFromAudioSampleBuffer(tempBuffer, 0, processor.sampleLen.get());
-					fileWavOutStream.release();
-					//
-					xWriter->flush();
-					xWriter = nullptr;
+					writeFileProgress = 0.0;
+					writeFileThread = new WWriteFile(this, xFile, xBits);
+					writeFileThread->startThread(6);
 				}
 			}
 			else if (result == 28) // Crossfade //
 			{
-				int loopStart = int(processor.loopStart * float(processor.sampleLen.get()));
-				int loopEnd = int(processor.loopEnd * float(processor.sampleLen.get()));
+				int loopStart = int(processor.loopStart * float(processor.sampleLen));
+				int loopEnd = int(processor.loopEnd * float(processor.sampleLen));
 				int loopLen = loopEnd - loopStart;
 				//
 				if (loopLen > 0 && processor.loopedMode == 0.0f || processor.loopEnd == 0.0f || loopStart < loopLen)
@@ -400,13 +475,17 @@ void WusikSp22AudioProcessorEditor::mouseUp(const MouseEvent& event)
 				}
 				else
 				{
-					AudioSampleBuffer tempBuffer(processor.sampleBuffer);
-					processor.sampleBuffer.applyGainRamp(loopStart, loopLen , 1.0f, 0.0f);
-					//
-					processor.sampleBuffer.addFromWithRamp(kLeftChannel, loopStart, tempBuffer.getReadPointer(kLeftChannel), loopLen, 0.0f, 1.0f);
-					processor.sampleBuffer.addFromWithRamp(kRightChannel, loopStart, tempBuffer.getReadPointer(kRightChannel), loopLen, 0.0f, 1.0f);
-					//
-					createCachedWaveform();
+					if (processor.sampleLen < processor.sampleBuffer[0]->getNumSamples())
+					{
+						AudioSampleBuffer tempBuffer(*processor.sampleBuffer[0]);
+						processor.sampleBuffer[0]->applyGainRamp(loopStart, loopLen , 1.0f, 0.0f);
+						//
+						processor.sampleBuffer[0]->addFromWithRamp(kLeftChannel, loopStart, tempBuffer.getReadPointer(kLeftChannel), loopLen, 0.0f, 1.0f);
+						processor.sampleBuffer[0]->addFromWithRamp(kRightChannel, loopStart, tempBuffer.getReadPointer(kRightChannel), loopLen, 0.0f, 1.0f);
+						//
+						createCachedWaveform();
+					}
+					else MessageBox("Too Large", "The audio is too large!");
 				}
 			}
 			else if (result == 32) // Normalize //
@@ -417,12 +496,16 @@ void WusikSp22AudioProcessorEditor::mouseUp(const MouseEvent& event)
 			}
 			else if (result >= 20) // Fade In / Out //
 			{
-				if (result == 20) processor.sampleBuffer.applyGainRamp(0, processor.sampleLen.get(), 0.0f, 1.0f); // Fade In //
-				else if (result == 22) processor.sampleBuffer.applyGainRamp(0, processor.sampleLen.get(), 1.0f, 0.0f); // Fade Out //
-				else if (result == 24) processor.sampleBuffer.applyGainRamp(0, 200, 0.0f, 1.0f); // Quick Fade Int //
-				else if (result == 26) processor.sampleBuffer.applyGainRamp(processor.sampleLen.get() - 200, 200, 1.0f, 0.0f); // Quick Fade Out //
-				//
-				createCachedWaveform();
+				if (processor.sampleLen < processor.sampleBuffer[0]->getNumSamples())
+				{
+					if (result == 20) processor.sampleBuffer[0]->applyGainRamp(0, processor.sampleLen, 0.0f, 1.0f); // Fade In //
+					else if (result == 22) processor.sampleBuffer[0]->applyGainRamp(0, processor.sampleLen, 1.0f, 0.0f); // Fade Out //
+					else if (result == 24) processor.sampleBuffer[0]->applyGainRamp(0, 200, 0.0f, 1.0f); // Quick Fade Int //
+					else if (result == 26) processor.sampleBuffer[0]->applyGainRamp(processor.sampleLen - 200, 200, 1.0f, 0.0f); // Quick Fade Out //
+					//
+					createCachedWaveform();
+				}
+				else MessageBox("Too Large", "The audio is too large!");
 			}
 		}
 	}
@@ -433,7 +516,7 @@ void WusikSp22AudioProcessorEditor::mouseUp(const MouseEvent& event)
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 void WusikSp22AudioProcessorEditor::mouseWheelMove(const MouseEvent& event, const MouseWheelDetails& wheel)
 {
-	waveformEditPosition = jlimit(0, processor.sampleLen.get() - waveformDisplayW, waveformEditPosition - int(wheel.deltaY * waveformFrameSize));
+	waveformEditPosition = jlimit(0, processor.sampleLen - waveformDisplayW, waveformEditPosition - int(wheel.deltaY * waveformFrameSize));
 	//
 	repaint();
 }
@@ -444,7 +527,7 @@ void WusikSp22AudioProcessorEditor::createCachedWaveform()
 	scrollingWaveform = kScrollingWaveformNone;
 	waveformEditPosition = waveformEditPositionPrevious = 0;
 	//
-	if (processor.sampleLen.get() > 0)
+	if (processor.sampleLen > 0)
 	{
 		cachedWaveform = Image(Image::ARGB, waveformThumbW, waveformThumbH, true);
 		Graphics g(cachedWaveform);
@@ -452,57 +535,68 @@ void WusikSp22AudioProcessorEditor::createCachedWaveform()
 		g.setColour(Colours::black.withAlpha(0.88f));
 		g.drawLine(0, (waveformThumbH / 2) - 1, waveformThumbW, (waveformThumbH / 2) + 1, 1.0f);
 		//
-		if (processor.normalizeRecording == 0.0f) processor.normalizeRecordingValue = 1.0f;
-			else processor.normalizeRecordingValue = 1.0f / processor.sampleBuffer.getMagnitude(0, processor.sampleLen.get());
-		//
-		if (processor.sampleLen.get() < waveformThumbW)
+		if (processor.sampleLen >= processor.sampleBuffer[0]->getNumSamples())
 		{
-			waveformFrameSize = 1;
+			g.setFont(Font("Verdana", 18, 0));
+			g.setColour(Colours::darkorange);
+			g.drawText("Audio Too Large", 0, 0, cachedWaveform.getWidth(), cachedWaveform.getHeight(), Justification::centred);
 			//
-			for (int xs = 0; xs < processor.sampleLen.get(); xs++)
-			{
-				g.setColour(Colours::black.withAlpha(0.72f));
-				int posY = processor.sampleBuffer.getSample(kLeftChannel, xs) * processor.normalizeRecordingValue * float(waveformThumbH / 2);
-				g.drawLine(xs, waveformThumbH / 2, xs, (waveformThumbH / 2) + posY, 2.0f);
-				//
-				g.setColour(Colours::black.withAlpha(0.22f));
-				posY = processor.sampleBuffer.getSample(kRightChannel, xs) * processor.normalizeRecordingValue * float(waveformThumbH / 2);
-				g.drawLine(xs, waveformThumbH / 2, xs, (waveformThumbH / 2) + posY, 2.0f);
-			}
+			processor.normalizeRecordingValue = 1.0f;
 		}
 		else
 		{
-			int position = 0;
-			waveformFrameSize = int(float(processor.sampleLen.get()) / float(waveformThumbW));
+			if (processor.normalizeRecording == 0.0f) processor.normalizeRecordingValue = 1.0f;
+			else processor.normalizeRecordingValue = 1.0f / processor.sampleBuffer[0]->getMagnitude(0, processor.sampleLen);
 			//
-			for (int xs = 0; xs < (waveformThumbW); xs++)
+			if (processor.sampleLen < waveformThumbW)
 			{
-				float xValue[2] = { 0.0f, 0.0f };
+				waveformFrameSize = 1;
 				//
-				for (int xf = 0; xf < waveformFrameSize; xf++)
+				for (int xs = 0; xs < processor.sampleLen; xs++)
 				{
-					float tempValue = fabs(processor.sampleBuffer.getSample(kLeftChannel, position) * processor.normalizeRecordingValue);
-					if (tempValue > xValue[kLeftChannel]) xValue[kLeftChannel] = tempValue;
-					tempValue = fabs(processor.sampleBuffer.getSample(kRightChannel, position) * processor.normalizeRecordingValue);
-					if (tempValue > xValue[kRightChannel]) xValue[kRightChannel] = tempValue;
-					position++;
+					g.setColour(Colours::black.withAlpha(0.72f));
+					int posY = processor.sampleBuffer[0]->getSample(kLeftChannel, xs) * processor.normalizeRecordingValue * float(waveformThumbH / 2);
+					g.drawLine(xs, waveformThumbH / 2, xs, (waveformThumbH / 2) + posY, 2.0f);
+					//
+					g.setColour(Colours::black.withAlpha(0.22f));
+					posY = processor.sampleBuffer[0]->getSample(kRightChannel, xs) * processor.normalizeRecordingValue * float(waveformThumbH / 2);
+					g.drawLine(xs, waveformThumbH / 2, xs, (waveformThumbH / 2) + posY, 2.0f);
 				}
+			}
+			else
+			{
+				int position = 0;
+				waveformFrameSize = int(float(processor.sampleLen) / float(waveformThumbW));
 				//
-				g.setColour(Colours::black.withAlpha(0.72f));
-				int posY = xValue[kLeftChannel] * float(waveformThumbH / 2);
-				g.drawLine(xs, waveformThumbH / 2, xs, (waveformThumbH / 2) + posY, 2.0f);
-				//
-				g.setColour(Colours::black.withAlpha(0.22f));
-				posY = xValue[kRightChannel] * float(waveformThumbH / 2);
-				g.drawLine(xs, waveformThumbH / 2, xs, (waveformThumbH / 2) + posY, 2.0f);
-				//
-				g.setColour(Colours::black.withAlpha(0.72f));
-				posY = -xValue[kLeftChannel] * float(waveformThumbH / 2);
-				g.drawLine(xs, waveformThumbH / 2, xs, (waveformThumbH / 2) + posY, 2.0f);
-				//
-				g.setColour(Colours::black.withAlpha(0.22f));
-				posY = -xValue[kRightChannel] * float(waveformThumbH / 2);
-				g.drawLine(xs, waveformThumbH / 2, xs, (waveformThumbH / 2) + posY, 2.0f);
+				for (int xs = 0; xs < (waveformThumbW); xs++)
+				{
+					float xValue[2] = { 0.0f, 0.0f };
+					//
+					for (int xf = 0; xf < waveformFrameSize; xf++)
+					{
+						float tempValue = fabs(processor.sampleBuffer[0]->getSample(kLeftChannel, position) * processor.normalizeRecordingValue);
+						if (tempValue > xValue[kLeftChannel]) xValue[kLeftChannel] = tempValue;
+						tempValue = fabs(processor.sampleBuffer[0]->getSample(kRightChannel, position) * processor.normalizeRecordingValue);
+						if (tempValue > xValue[kRightChannel]) xValue[kRightChannel] = tempValue;
+						position++;
+					}
+					//
+					g.setColour(Colours::black.withAlpha(0.72f));
+					int posY = xValue[kLeftChannel] * float(waveformThumbH / 2);
+					g.drawLine(xs, waveformThumbH / 2, xs, (waveformThumbH / 2) + posY, 2.0f);
+					//
+					g.setColour(Colours::black.withAlpha(0.22f));
+					posY = xValue[kRightChannel] * float(waveformThumbH / 2);
+					g.drawLine(xs, waveformThumbH / 2, xs, (waveformThumbH / 2) + posY, 2.0f);
+					//
+					g.setColour(Colours::black.withAlpha(0.72f));
+					posY = -xValue[kLeftChannel] * float(waveformThumbH / 2);
+					g.drawLine(xs, waveformThumbH / 2, xs, (waveformThumbH / 2) + posY, 2.0f);
+					//
+					g.setColour(Colours::black.withAlpha(0.22f));
+					posY = -xValue[kRightChannel] * float(waveformThumbH / 2);
+					g.drawLine(xs, waveformThumbH / 2, xs, (waveformThumbH / 2) + posY, 2.0f);
+				}
 			}
 		}
 	}

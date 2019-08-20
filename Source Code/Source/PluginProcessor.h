@@ -12,12 +12,24 @@
 #pragma once
 #include "../JuceLibraryCode/JuceHeader.h"
 //
-#define WPRODUCT_VERSION "V1.0.2"
+#define WPRODUCT_VERSION "V1.0.4"
+#define WBUFFER_TIME_IN_SECONDS 60.0
 //
 enum
 {
 	kLeftChannel,
-	kRightChannel
+	kRightChannel,
+	kPlayAudio = 0,
+	kStopAudio
+};
+//
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+class WRecordThread : public Thread
+{
+public:
+	WRecordThread(void* _owner) : Thread("Wusik Recording"), owner(_owner) { };
+	void run();
+	void* owner;
 };
 //
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -47,7 +59,9 @@ public:
 	void setCurrentProgram(int index) override { };
 	const String getProgramName(int index) override { return String(); };
 	void changeProgramName(int index, const String& newName) override { };
-	void clearSampleBuffer();
+	void startRecording();
+	void finishRecording();
+	void doAudio(int what);
 	//
 	float hermite(float x, float y0, float y1, float y2, float y3)
 	{
@@ -67,19 +81,24 @@ public:
 	float loopedMode;
 	float loopStart;
 	float loopEnd;
-	Atomic<int> sampleLen;
 	bool isRecording, isRecordingStarted, isPlaying;
 	int endRecordingCounter;
 	float recordedSamplerate;
 	float normalizeRecording;
 	float normalizeRecordingValue;
-	Atomic<double> playingPosition;
+	float autoStop;
+	double playingPosition;
 	double playingRate;
 	MidiMessage midiMessage;
 	int sampPos;
 	bool fixedPitchPlayback, playbackAntialias;
 	//
-	AudioSampleBuffer sampleBuffer;
+	WRecordThread recordingThread;
+	OwnedArray<AudioSampleBuffer> sampleBuffer;
+	int sampleLen, sampleLenRecording, whichSampleBufferRecording;
+	ScopedPointer<AudioSampleBuffer> tempBufferToAdd;
+	bool readyToAddTempBuffer;
+	AudioSampleBuffer* recordingBufferToShow;
 	//
 private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WusikSp22AudioProcessor)

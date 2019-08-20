@@ -40,6 +40,18 @@ enum
 #define slash File::getSeparatorString()
 //
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+class WWriteFile : public Thread
+{
+public:
+	WWriteFile(void* _owner, File _filename, int _bits) : Thread("Wusik Save WAV File"), owner(_owner), filename(_filename), bits(_bits) { };
+	void run();
+	//
+	void* owner;
+	File filename;
+	int bits;
+};
+//
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 class WValueLabel : public Component
 {
 public:
@@ -96,7 +108,7 @@ public:
 	float initialValue;
 	float min, max, rate;
 	bool isOnOff;
-	Atomic<int>* sampleSize;
+	int* sampleSize;
 };
 //
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -131,6 +143,8 @@ public:
 	int waveformEditPosition, waveformFrameSize, waveformEditPositionPrevious;
 	int scrollingWaveform;
 	String lastExportedFilename;
+	ScopedPointer<WWriteFile> writeFileThread;
+	double writeFileProgress;
 	//
 private:
     WusikSp22AudioProcessor& processor;

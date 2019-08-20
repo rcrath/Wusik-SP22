@@ -41,7 +41,7 @@ WusikKnob::WusikKnob(WValueLabel* _valueLabel, WusikSp22AudioProcessorEditor* _p
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 String WusikKnob::getText()
 {
-	if (sampleSize != nullptr) max = sampleSize->get();
+	if (sampleSize != nullptr) max = *sampleSize;
 	if (rate == 1.0f) return String(int(*theValue * max)); else return String(*theValue, 4);
 }
 //
@@ -82,7 +82,7 @@ void WusikKnob::mouseEnter(const MouseEvent& e)
 	//
 	if (isOnOff) return;
 	//
-	if (sampleSize != nullptr) max = sampleSize->get();
+	if (sampleSize != nullptr) max = *sampleSize;
 	//
 	int pX = getX();
 	int pY = getY();
@@ -135,7 +135,7 @@ bool WusikKnob::keyPressed(const KeyPress &key, Component* component)
 	}
 	float newValue = *theValue;
 	//
-	if (sampleSize != nullptr) max = sampleSize->get();
+	if (sampleSize != nullptr) max = *sampleSize;
 	//
 	float theRate = 0.01f;
 	if (key.getModifiers().isShiftDown()) theRate = 0.001f;
