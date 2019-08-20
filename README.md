@@ -4,6 +4,10 @@ Current Version 1.0.4
 
 ------------------------------------------------------
 
+If you want to download the actuall App/Plugins, go into the Binary folder above and pick your OS.
+
+------------------------------------------------------
+
 The Source Code requires JUCE 5 latest version.
 
 https://github.com/WeAreROLI/JUCE
